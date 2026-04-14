@@ -1,0 +1,88 @@
+name: Build + Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        default: 'latest'
+        description: 'Release tag'
+        required: true
+      runner:
+        type: choice
+        description: 'Action runs on'
+        options:
+          - self-hosted
+          - ubuntu-latest
+        required: true
+      increment_version:
+        type: boolean
+        description: 'Increment version in package.json'
+        default: true
+
+  push:
+    branches:
+      - main
+
+env:
+  DEFAULT_TAG: 'latest'
+
+jobs:
+  build_and_release:
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner || fromJSON('["self-hosted", "Linux"]') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.0.0
+
+      - name: Install dependencies
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+        run: npm install
+
+      - name: Bump version in package.json
+        if: github.event_name == 'push' || github.event.inputs.increment_version == 'true'
+        id: bump_version
+        run: |
+          # Get the current version from package.json
+          current_version=$(node -p "require('./package.json').version")
+
+          # Increment the rightmost value by 1
+          new_version=$(node -e "let versionParts = '$current_version'.split('.'); versionParts[versionParts.length - 1] = parseInt(versionParts[versionParts.length - 1]) + 1; console.log(versionParts.join('.'));")
+          # Update package.json with the new version
+          node -e "let pkg = require('./package.json'); pkg.version = '$new_version'; require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2));"
+
+          # Configure Git user info for this commit
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Commit and push changes
+          git add package.json
+          git commit -m "build: [EL-1000] Increment version to $new_version" || echo "No changes to commit"
+          git push
+
+          # Publish these as outputs for the next step
+          echo "old_version=$current_version" >> $GITHUB_OUTPUT
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+
+      - name: Build project
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+        run: npm run build -- --base=./
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: ./dist/index.html
+          makeLatest: true
+          allowUpdates: true
+          tag: ${{ github.event.inputs.tag || env.DEFAULT_TAG }}
+
+      - name: Show version bump annotation
+        if: steps.bump_version.outputs.new_version != ''
+        # This step uses the output from the "bump_version" step
+        run: |
+          echo "::notice title=Version Bump::Incrementing version from ${{ steps.bump_version.outputs.old_version }} to ${{ steps.bump_version.outputs.new_version }}"
