@@ -38,12 +38,14 @@ jobs:
       - name: Build project
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
-        run: npm run build -- --base=./
+        run: |
+          npm run build -- --base=./
+          mv ./dist/index.html ./dist/maintenance.html
 
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: ./dist/index.html
+          artifacts: ./dist/maintenance.html
           makeLatest: false
           allowUpdates: true
           tag: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
