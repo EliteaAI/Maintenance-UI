@@ -18,6 +18,9 @@ on:
           - ubuntu-latest
         required: true
 
+permissions:
+  contents: write
+
 jobs:
   build_and_release:
     runs-on: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner || fromJSON('["self-hosted", "Linux"]') }}
